@@ -1,0 +1,4 @@
+{
+  /// Paste your Sentry User Auth Token
+  "sentry_access_token": ""
+}

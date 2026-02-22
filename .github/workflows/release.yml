@@ -1,0 +1,21 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    name: Release Zed Extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: huacnlee/zed-extension-action@v2
+        with:
+          extension-name: sentry-mcp
+          # Fork zed-industries/extensions first.
+          # This should point to your fork (for example: fabric0de/extensions).
+          push-to: ${{ github.repository_owner }}/extensions
+        env:
+          # Personal access token with repo + workflow scopes.
+          COMMITTER_TOKEN: ${{ secrets.COMMITTER_TOKEN }}

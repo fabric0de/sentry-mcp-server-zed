@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sentry_access_token"],
+  "properties": {
+    "sentry_access_token": {
+      "type": "string",
+      "description": "Required. Sentry User Auth Token."
+    }
+  }
+}
