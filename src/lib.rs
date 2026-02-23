@@ -1,4 +1,6 @@
 use serde::Deserialize;
+use std::env;
+use std::path::{Path, PathBuf};
 use zed_extension_api::{
     self as zed, settings::ContextServerSettings, Command, ContextServerConfiguration,
     ContextServerId, Project,
@@ -6,7 +8,7 @@ use zed_extension_api::{
 
 const CONTEXT_SERVER_ID: &str = "sentry-mcp";
 const NPM_PACKAGE_NAME: &str = "@sentry/mcp-server";
-const NPM_ENTRYPOINT_RELATIVE: &str = "node_modules/@sentry/mcp-server/dist/bin/mcp.js";
+const NPM_ENTRYPOINT_RELATIVE: &str = "node_modules/@sentry/mcp-server/dist/index.js";
 
 struct SentryMcpExtension;
 
@@ -43,16 +45,9 @@ impl zed::Extension for SentryMcpExtension {
 
         ensure_sentry_mcp_installed()?;
         let settings = load_settings(context_server_id, project)?;
-
-        let token = settings.sentry_access_token.trim();
-        if token.is_empty() {
-            return Err("Missing required setting: sentry_access_token".to_string());
-        }
-
-        let args = vec![
-            NPM_ENTRYPOINT_RELATIVE.to_string(),
-            format!("--access-token={token}"),
-        ];
+        let token = required_access_token(&settings)?;
+        let entrypoint = resolve_sentry_entrypoint()?;
+        let args = vec![entrypoint, format!("--access-token={token}")];
 
         Ok(Command {
             command: zed::node_binary_path()?,
@@ -91,6 +86,58 @@ fn ensure_sentry_mcp_installed() -> zed::Result<()> {
     Ok(())
 }
 
+fn resolve_sentry_entrypoint() -> zed::Result<String> {
+    let candidate_paths = sentry_entrypoint_candidates();
+
+    for candidate in candidate_paths {
+        if candidate.is_file() {
+            return Ok(candidate.to_string_lossy().to_string());
+        }
+    }
+
+    Err(
+        "Could not locate @sentry/mcp-server entrypoint in Zed extension work directory."
+            .to_string(),
+    )
+}
+
+fn sentry_entrypoint_candidates() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+
+    if let Ok(cwd) = env::current_dir() {
+        paths.push(cwd.join(NPM_ENTRYPOINT_RELATIVE));
+    }
+
+    for env_var in ["ZED_EXTENSION_WORK_DIR", "ZED_WORKDIR", "ZED_EXT_WORK_DIR"] {
+        if let Ok(base) = env::var(env_var) {
+            paths.push(PathBuf::from(&base).join(NPM_ENTRYPOINT_RELATIVE));
+        }
+    }
+
+    if let Ok(home) = env::var("HOME") {
+        paths.push(
+            Path::new(&home)
+                .join("Library/Application Support/Zed/extensions/work/sentry-mcp")
+                .join(NPM_ENTRYPOINT_RELATIVE),
+        );
+        paths.push(
+            Path::new(&home)
+                .join(".local/share/zed/extensions/work/sentry-mcp")
+                .join(NPM_ENTRYPOINT_RELATIVE),
+        );
+    }
+
+    if let Ok(appdata) = env::var("APPDATA") {
+        paths.push(
+            Path::new(&appdata)
+                .join("Zed/extensions/work/sentry-mcp")
+                .join(NPM_ENTRYPOINT_RELATIVE),
+        );
+    }
+
+    paths
+}
+
 fn load_settings(
     context_server_id: &ContextServerId,
     project: &Project,
@@ -104,6 +151,19 @@ fn load_settings(
     };
 
     Ok(settings)
+}
+
+fn required_access_token(settings: &SentryMcpSettings) -> zed::Result<String> {
+    let token = settings.sentry_access_token.trim();
+
+    if token.is_empty() {
+        return Err(
+            "Missing required setting: sentry_access_token. Open Configure for Sentry MCP Server and set `sentry_access_token`."
+                .to_string(),
+        );
+    }
+
+    Ok(token.to_string())
 }
 
 zed::register_extension!(SentryMcpExtension);
