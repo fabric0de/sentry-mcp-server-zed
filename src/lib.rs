@@ -1,6 +1,5 @@
 use serde::Deserialize;
 use std::env;
-use std::path::{Path, PathBuf};
 use zed_extension_api::{
     self as zed, settings::ContextServerSettings, Command, ContextServerConfiguration,
     ContextServerId, Project,
@@ -87,55 +86,19 @@ fn ensure_sentry_mcp_installed() -> zed::Result<()> {
 }
 
 fn resolve_sentry_entrypoint() -> zed::Result<String> {
-    let candidate_paths = sentry_entrypoint_candidates();
+    let cwd = env::current_dir().map_err(|err| {
+        format!("Could not resolve current directory for sentry-mcp entrypoint lookup: {err}")
+    })?;
+    let entrypoint = cwd.join(NPM_ENTRYPOINT_RELATIVE);
 
-    for candidate in candidate_paths {
-        if candidate.is_file() {
-            return Ok(candidate.to_string_lossy().to_string());
-        }
+    if entrypoint.is_file() {
+        Ok(entrypoint.to_string_lossy().to_string())
+    } else {
+        Err(format!(
+            "Could not locate @sentry/mcp-server entrypoint at {}",
+            entrypoint.to_string_lossy()
+        ))
     }
-
-    Err(
-        "Could not locate @sentry/mcp-server entrypoint in Zed extension work directory."
-            .to_string(),
-    )
-}
-
-fn sentry_entrypoint_candidates() -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-
-    if let Ok(cwd) = env::current_dir() {
-        paths.push(cwd.join(NPM_ENTRYPOINT_RELATIVE));
-    }
-
-    for env_var in ["ZED_EXTENSION_WORK_DIR", "ZED_WORKDIR", "ZED_EXT_WORK_DIR"] {
-        if let Ok(base) = env::var(env_var) {
-            paths.push(PathBuf::from(&base).join(NPM_ENTRYPOINT_RELATIVE));
-        }
-    }
-
-    if let Ok(home) = env::var("HOME") {
-        paths.push(
-            Path::new(&home)
-                .join("Library/Application Support/Zed/extensions/work/sentry-mcp")
-                .join(NPM_ENTRYPOINT_RELATIVE),
-        );
-        paths.push(
-            Path::new(&home)
-                .join(".local/share/zed/extensions/work/sentry-mcp")
-                .join(NPM_ENTRYPOINT_RELATIVE),
-        );
-    }
-
-    if let Ok(appdata) = env::var("APPDATA") {
-        paths.push(
-            Path::new(&appdata)
-                .join("Zed/extensions/work/sentry-mcp")
-                .join(NPM_ENTRYPOINT_RELATIVE),
-        );
-    }
-
-    paths
 }
 
 fn load_settings(
