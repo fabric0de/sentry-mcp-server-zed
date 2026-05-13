@@ -1,7 +1,7 @@
 id = "sentry-mcp"
 name = "Sentry MCP Server"
 description = "Model Context Protocol Server for Sentry"
-version = "0.1.1"
+version = "0.1.2"
 schema_version = 1
 authors = ["fabric0de <junghyeonkim.dev@gmail.com>"]
 repository = "https://github.com/fabric0de/sentry-mcp-server-zed"
