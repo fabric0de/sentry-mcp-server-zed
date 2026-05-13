@@ -7,6 +7,10 @@
     "sentry_access_token": {
       "type": "string",
       "description": "Required. Sentry User Auth Token."
+    },
+    "sentry_host": {
+      "type": "string",
+      "description": "Optional. Self-hosted Sentry URL, for example https://sentry.my-company.com. Leave empty to use sentry.io."
     }
   }
 }
