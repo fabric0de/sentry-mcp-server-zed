@@ -30,6 +30,22 @@ Zed settings:
 }
 ```
 
+For self-hosted Sentry, add `sentry_host`:
+
+```json
+{
+  "context_servers": {
+    "sentry-mcp": {
+      "enabled": true,
+      "settings": {
+        "sentry_access_token": "sntryu_...",
+        "sentry_host": "https://sentry.my-company.com"
+      }
+    }
+  }
+}
+```
+
 ## Use In Agent Panel
 
 - Open Zed Agent Panel and make sure `sentry-mcp` is enabled.
@@ -41,6 +57,7 @@ If the assistant replies with plain text instructions instead of running tools, 
 
 - Agent profile/tool permissions allow MCP tools.
 - `sentry_access_token` exists in the active workspace settings (workspace settings can override global settings).
+- For self-hosted Sentry, `sentry_host` points to your Sentry instance URL.
 
 ## Notes
 

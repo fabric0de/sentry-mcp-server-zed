@@ -15,12 +15,14 @@ struct SentryMcpExtension;
 #[serde(default)]
 struct SentryMcpSettings {
     sentry_access_token: String,
+    sentry_host: String,
 }
 
 impl Default for SentryMcpSettings {
     fn default() -> Self {
         Self {
             sentry_access_token: String::new(),
+            sentry_host: String::new(),
         }
     }
 }
@@ -47,11 +49,12 @@ impl zed::Extension for SentryMcpExtension {
         let token = required_access_token(&settings)?;
         let entrypoint = resolve_sentry_entrypoint()?;
         let args = vec![entrypoint, format!("--access-token={token}")];
+        let env = command_env(&settings);
 
         Ok(Command {
             command: zed::node_binary_path()?,
             args,
-            env: Vec::new(),
+            env,
         })
     }
 
@@ -127,6 +130,16 @@ fn required_access_token(settings: &SentryMcpSettings) -> zed::Result<String> {
     }
 
     Ok(token.to_string())
+}
+
+fn command_env(settings: &SentryMcpSettings) -> Vec<(String, String)> {
+    let host = settings.sentry_host.trim();
+
+    if host.is_empty() {
+        Vec::new()
+    } else {
+        vec![("SENTRY_HOST".to_string(), host.to_string())]
+    }
 }
 
 zed::register_extension!(SentryMcpExtension);
