@@ -1,5 +1,8 @@
 use serde::Deserialize;
-use std::env;
+use std::{
+    env, fs,
+    path::{Component, Path},
+};
 use zed_extension_api::{
     self as zed, settings::ContextServerSettings, Command, ContextServerConfiguration,
     ContextServerId, Project,
@@ -7,9 +10,24 @@ use zed_extension_api::{
 
 const CONTEXT_SERVER_ID: &str = "sentry-mcp";
 const NPM_PACKAGE_NAME: &str = "@sentry/mcp-server";
-const NPM_ENTRYPOINT_RELATIVE: &str = "node_modules/@sentry/mcp-server/dist/index.js";
+const NPM_PACKAGE_DIR: &str = "node_modules/@sentry/mcp-server";
 
 struct SentryMcpExtension;
+
+#[derive(Deserialize)]
+struct NpmPackageManifest {
+    bin: NpmBin,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum NpmBin {
+    Commands {
+        #[serde(rename = "sentry-mcp")]
+        sentry_mcp: String,
+    },
+    Path(String),
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
@@ -46,14 +64,15 @@ impl zed::Extension for SentryMcpExtension {
 
         ensure_sentry_mcp_installed()?;
         let settings = load_settings(context_server_id, project)?;
-        let token = required_access_token(&settings)?;
-        let entrypoint = resolve_sentry_entrypoint()?;
-        let args = vec![entrypoint, format!("--access-token={token}")];
-        let env = command_env(&settings);
+        let env = command_env(&settings)?;
+        let cwd = env::current_dir().map_err(|err| {
+            format!("Could not resolve current directory for sentry-mcp entrypoint lookup: {err}")
+        })?;
+        let entrypoint = resolve_sentry_entrypoint(&cwd.join(NPM_PACKAGE_DIR))?;
 
         Ok(Command {
             command: zed::node_binary_path()?,
-            args,
+            args: vec![entrypoint],
             env,
         })
     }
@@ -88,11 +107,28 @@ fn ensure_sentry_mcp_installed() -> zed::Result<()> {
     Ok(())
 }
 
-fn resolve_sentry_entrypoint() -> zed::Result<String> {
-    let cwd = env::current_dir().map_err(|err| {
-        format!("Could not resolve current directory for sentry-mcp entrypoint lookup: {err}")
-    })?;
-    let entrypoint = cwd.join(NPM_ENTRYPOINT_RELATIVE);
+fn resolve_sentry_entrypoint(package_dir: &Path) -> zed::Result<String> {
+    let manifest_path = package_dir.join("package.json");
+    let manifest = fs::read(&manifest_path)
+        .map_err(|err| format!("Could not read {}: {err}", manifest_path.display()))?;
+    let manifest: NpmPackageManifest = zed::serde_json::from_slice(&manifest)
+        .map_err(|err| format!("Could not parse {}: {err}", manifest_path.display()))?;
+    let bin = match &manifest.bin {
+        NpmBin::Commands { sentry_mcp } => sentry_mcp,
+        NpmBin::Path(path) => path,
+    };
+    let relative_path = Path::new(bin);
+    if bin.is_empty()
+        || relative_path
+            .components()
+            .any(|part| !matches!(part, Component::Normal(_) | Component::CurDir))
+    {
+        return Err(format!(
+            "Expected a package-relative executable path in the bin field of {}",
+            manifest_path.display()
+        ));
+    }
+    let entrypoint = package_dir.join(relative_path);
 
     if entrypoint.is_file() {
         Ok(entrypoint.to_string_lossy().to_string())
@@ -119,7 +155,7 @@ fn load_settings(
     Ok(settings)
 }
 
-fn required_access_token(settings: &SentryMcpSettings) -> zed::Result<String> {
+fn command_env(settings: &SentryMcpSettings) -> zed::Result<Vec<(String, String)>> {
     let token = settings.sentry_access_token.trim();
 
     if token.is_empty() {
@@ -129,17 +165,73 @@ fn required_access_token(settings: &SentryMcpSettings) -> zed::Result<String> {
         );
     }
 
-    Ok(token.to_string())
-}
-
-fn command_env(settings: &SentryMcpSettings) -> Vec<(String, String)> {
+    let mut env = vec![
+        ("SENTRY_AUTH_TOKEN".to_string(), token.to_string()),
+        // An inherited legacy token would otherwise override the configured one.
+        ("SENTRY_ACCESS_TOKEN".to_string(), String::new()),
+    ];
     let host = settings.sentry_host.trim();
 
-    if host.is_empty() {
-        Vec::new()
-    } else {
-        vec![("SENTRY_HOST".to_string(), host.to_string())]
+    if !host.is_empty() {
+        env.push(("SENTRY_HOST".to_string(), host.to_string()));
     }
+    Ok(env)
 }
 
 zed::register_extension!(SentryMcpExtension);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn resolves_the_installed_packages_bin() {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        let package = env::temp_dir().join(format!("sentry-mcp-bin-{}", nonce.as_nanos()));
+        fs::create_dir_all(package.join("dist")).unwrap();
+        let old_entrypoint = package.join("dist/index.js");
+        let new_entrypoint = package.join("dist/sentry-mcp.cjs");
+        fs::write(&old_entrypoint, "").unwrap();
+        fs::write(&new_entrypoint, "").unwrap();
+
+        let manifest = package.join("package.json");
+        fs::write(
+            &manifest,
+            r#"{"bin":{"sentry-mcp":"./dist/sentry-mcp.cjs"}}"#,
+        )
+        .unwrap();
+        let bundled = resolve_sentry_entrypoint(&package);
+        fs::write(&manifest, r#"{"bin":"dist/index.js"}"#).unwrap();
+        let single_bin = resolve_sentry_entrypoint(&package);
+        fs::write(&manifest, r#"{"bin":{"sentry-mcp":"dist/missing.cjs"}}"#).unwrap();
+        let missing = resolve_sentry_entrypoint(&package);
+        fs::remove_dir_all(&package).unwrap();
+
+        assert_eq!(Path::new(&bundled.unwrap()), new_entrypoint.as_path());
+        assert_eq!(Path::new(&single_bin.unwrap()), old_entrypoint.as_path());
+        assert!(missing.unwrap_err().contains("missing.cjs"));
+    }
+
+    #[test]
+    fn passes_existing_settings_via_the_server_environment() {
+        let mut settings = SentryMcpSettings {
+            sentry_access_token: " sntryu_test ".to_string(),
+            sentry_host: " https://sentry.example.com ".to_string(),
+        };
+        let token_env = vec![
+            ("SENTRY_AUTH_TOKEN".to_string(), "sntryu_test".to_string()),
+            ("SENTRY_ACCESS_TOKEN".to_string(), String::new()),
+        ];
+        let mut self_hosted_env = token_env.clone();
+        self_hosted_env.push((
+            "SENTRY_HOST".to_string(),
+            "https://sentry.example.com".to_string(),
+        ));
+        assert_eq!(command_env(&settings).unwrap(), self_hosted_env);
+
+        settings.sentry_host.clear();
+        assert_eq!(command_env(&settings).unwrap(), token_env);
+        assert!(command_env(&SentryMcpSettings::default()).is_err());
+    }
+}
