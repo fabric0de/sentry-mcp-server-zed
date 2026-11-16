@@ -1,0 +1,69 @@
+name: Bug report
+description: Report a problem with the Sentry MCP Server extension for Zed.
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What went wrong?
+      description: Describe what happened and what you expected instead.
+      placeholder: |
+        Actual behavior:
+        Expected behavior:
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: How can we reproduce it?
+      description: >
+        List the steps in Zed, including the Sentry tool you used if applicable.
+        If the problem started after an update, say what changed.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions and operating system
+      description: Include the Zed version, extension version, and OS.
+      placeholder: |
+        Zed version:
+        Extension version:
+        OS:
+        @sentry/mcp-server version (if known):
+        Node.js version used by Zed (if known):
+        Last version that worked (if known):
+    validations:
+      required: true
+
+  - type: dropdown
+    id: sentry_environment
+    attributes:
+      label: Sentry environment
+      options:
+        - sentry.io
+        - Self-hosted
+        - Not sure
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Zed logs
+      description: >
+        Run `zed: open log` from the command palette and paste the lines
+        around the error. Remove tokens, API keys, and private URLs.
+      render: text
+
+  - type: textarea
+    id: settings
+    attributes:
+      label: Relevant Zed settings
+      description: >
+        If your configuration matters, share the relevant `context_servers.sentry-mcp`
+        settings. Replace tokens, API keys, and private URLs with placeholders.
+      render: jsonc
